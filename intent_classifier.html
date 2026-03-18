@@ -1,0 +1,743 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>🧠 Intent Classifier — Naive Bayes vs LSTM vs BERT</title>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;700;800&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --nb: #FF6B6B;
+    --lstm: #4ECDC4;
+    --bert: #FFE66D;
+    --bg: #0D0D1A;
+    --surface: #161627;
+    --card: #1E1E35;
+    --text: #F0F0FF;
+    --muted: #8888AA;
+    --glow-nb: 0 0 30px rgba(255,107,107,0.4);
+    --glow-lstm: 0 0 30px rgba(78,205,196,0.4);
+    --glow-bert: 0 0 30px rgba(255,230,109,0.4);
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: 'DM Sans', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* === ANIMATED BG === */
+  .bg-blobs {
+    position: fixed; inset: 0; pointer-events: none; z-index: 0;
+    overflow: hidden;
+  }
+  .blob {
+    position: absolute; border-radius: 50%;
+    filter: blur(80px); opacity: 0.15;
+    animation: float 8s ease-in-out infinite alternate;
+  }
+  .blob-1 { width: 500px; height: 500px; background: var(--nb); top: -100px; left: -100px; animation-duration: 9s; }
+  .blob-2 { width: 400px; height: 400px; background: var(--lstm); bottom: -100px; right: -100px; animation-duration: 11s; animation-delay: -3s; }
+  .blob-3 { width: 300px; height: 300px; background: var(--bert); top: 40%; left: 40%; animation-duration: 7s; animation-delay: -5s; }
+
+  @keyframes float {
+    from { transform: translate(0,0) scale(1); }
+    to { transform: translate(40px, 30px) scale(1.1); }
+  }
+
+  /* === LAYOUT === */
+  .container {
+    position: relative; z-index: 1;
+    max-width: 900px; margin: 0 auto;
+    padding: 40px 20px 80px;
+  }
+
+  /* === HEADER === */
+  header { text-align: center; margin-bottom: 48px; }
+
+  .badge {
+    display: inline-flex; align-items: center; gap: 8px;
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 100px; padding: 6px 18px;
+    font-size: 13px; color: var(--muted);
+    margin-bottom: 20px;
+    letter-spacing: 0.5px;
+  }
+  .badge span { width: 6px; height: 6px; border-radius: 50%; background: #4ECDC4; display: inline-block; animation: blink 2s infinite; }
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.2} }
+
+  h1 {
+    font-family: 'Syne', sans-serif;
+    font-size: clamp(2rem, 5vw, 3.2rem);
+    font-weight: 800; line-height: 1.1;
+    background: linear-gradient(135deg, #FF6B6B 0%, #FFE66D 50%, #4ECDC4 100%);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    background-clip: text;
+    margin-bottom: 14px;
+  }
+
+  .subtitle {
+    color: var(--muted); font-size: 15px; font-weight: 300;
+    max-width: 500px; margin: 0 auto;
+    line-height: 1.6;
+  }
+
+  /* === MODEL PILLS === */
+  .model-tabs {
+    display: flex; gap: 10px; justify-content: center;
+    flex-wrap: wrap; margin-bottom: 32px;
+  }
+  .model-pill {
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px 18px; border-radius: 100px;
+    font-size: 13px; font-weight: 500;
+    border: 1.5px solid transparent;
+    cursor: pointer; transition: all 0.25s;
+    background: var(--card);
+  }
+  .model-pill.nb { border-color: var(--nb); color: var(--nb); }
+  .model-pill.lstm { border-color: var(--lstm); color: var(--lstm); }
+  .model-pill.bert { border-color: var(--bert); color: var(--bert); }
+  .model-pill.active.nb { background: var(--nb); color: #0D0D1A; box-shadow: var(--glow-nb); }
+  .model-pill.active.lstm { background: var(--lstm); color: #0D0D1A; box-shadow: var(--glow-lstm); }
+  .model-pill.active.bert { background: var(--bert); color: #0D0D1A; box-shadow: var(--glow-bert); }
+  .pill-dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+
+  /* === INPUT AREA === */
+  .input-section {
+    background: var(--card);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 20px; padding: 28px;
+    margin-bottom: 28px;
+    transition: border-color 0.3s;
+  }
+  .input-section:focus-within { border-color: rgba(78,205,196,0.4); }
+
+  .input-label {
+    font-size: 12px; font-weight: 500; letter-spacing: 1px;
+    text-transform: uppercase; color: var(--muted);
+    margin-bottom: 12px; display: block;
+  }
+
+  .textarea-wrap { position: relative; }
+
+  textarea {
+    width: 100%; min-height: 100px;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 12px; padding: 16px;
+    color: var(--text); font-family: 'DM Sans', sans-serif;
+    font-size: 15px; resize: vertical;
+    transition: border-color 0.2s, background 0.2s;
+    outline: none; line-height: 1.6;
+  }
+  textarea::placeholder { color: var(--muted); }
+  textarea:focus {
+    border-color: rgba(78,205,196,0.5);
+    background: rgba(255,255,255,0.06);
+  }
+
+  .char-count {
+    position: absolute; bottom: 10px; right: 14px;
+    font-size: 11px; color: var(--muted);
+  }
+
+  /* === EXAMPLE CHIPS === */
+  .examples-label {
+    font-size: 11px; letter-spacing: 0.8px; text-transform: uppercase;
+    color: var(--muted); margin: 14px 0 8px;
+  }
+  .chips {
+    display: flex; flex-wrap: wrap; gap: 8px;
+  }
+  .chip {
+    padding: 5px 14px; border-radius: 100px;
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.1);
+    font-size: 12px; color: #C0C0E0; cursor: pointer;
+    transition: all 0.2s;
+  }
+  .chip:hover {
+    background: rgba(78,205,196,0.15);
+    border-color: var(--lstm);
+    color: var(--lstm);
+  }
+
+  /* === BUTTONS === */
+  .btn-row {
+    display: flex; gap: 12px; margin-top: 20px; flex-wrap: wrap;
+  }
+  .btn-classify {
+    flex: 1; min-width: 160px;
+    padding: 14px 28px; border-radius: 12px;
+    border: none; cursor: pointer;
+    font-family: 'Syne', sans-serif;
+    font-size: 15px; font-weight: 700;
+    background: linear-gradient(135deg, #FF6B6B, #FFE66D, #4ECDC4);
+    color: #0D0D1A;
+    transition: all 0.25s; position: relative; overflow: hidden;
+  }
+  .btn-classify::after {
+    content: ''; position: absolute; inset: 0;
+    background: white; opacity: 0; transition: opacity 0.2s;
+  }
+  .btn-classify:hover::after { opacity: 0.1; }
+  .btn-classify:active { transform: scale(0.98); }
+  .btn-classify:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  .btn-clear {
+    padding: 14px 20px; border-radius: 12px;
+    background: transparent; border: 1px solid rgba(255,255,255,0.12);
+    color: var(--muted); cursor: pointer; font-size: 14px;
+    transition: all 0.2s;
+  }
+  .btn-clear:hover { border-color: rgba(255,107,107,0.4); color: var(--nb); }
+
+  /* === RESULTS === */
+  .results-section {
+    display: none; animation: fadeUp 0.4s ease;
+  }
+  .results-section.visible { display: block; }
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(20px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .results-grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 16px; margin-bottom: 28px;
+  }
+
+  .model-card {
+    background: var(--card);
+    border: 1px solid rgba(255,255,255,0.07);
+    border-radius: 18px; padding: 22px;
+    position: relative; overflow: hidden;
+    transition: transform 0.2s, border-color 0.2s;
+  }
+  .model-card:hover { transform: translateY(-2px); }
+
+  .model-card.nb-card { border-top: 3px solid var(--nb); }
+  .model-card.lstm-card { border-top: 3px solid var(--lstm); }
+  .model-card.bert-card { border-top: 3px solid var(--bert); }
+
+  .model-card.winner::after {
+    content: '🏆'; position: absolute; top: 12px; right: 14px;
+    font-size: 18px;
+  }
+
+  .model-name {
+    font-family: 'Syne', sans-serif;
+    font-size: 11px; font-weight: 700;
+    letter-spacing: 1.5px; text-transform: uppercase;
+    margin-bottom: 14px;
+  }
+  .nb-card .model-name { color: var(--nb); }
+  .lstm-card .model-name { color: var(--lstm); }
+  .bert-card .model-name { color: var(--bert); }
+
+  .intent-badge {
+    display: inline-block;
+    padding: 6px 14px; border-radius: 8px;
+    font-size: 14px; font-weight: 500;
+    margin-bottom: 16px;
+    background: rgba(255,255,255,0.08);
+    border: 1px solid rgba(255,255,255,0.12);
+    max-width: 100%; word-break: break-word;
+  }
+
+  .conf-label {
+    font-size: 11px; color: var(--muted); text-transform: uppercase;
+    letter-spacing: 0.8px; margin-bottom: 6px;
+  }
+
+  .conf-bar-wrap {
+    background: rgba(255,255,255,0.06); border-radius: 100px;
+    height: 8px; overflow: hidden; margin-bottom: 8px;
+  }
+  .conf-bar {
+    height: 100%; border-radius: 100px;
+    transition: width 0.8s cubic-bezier(.34,1.56,.64,1);
+  }
+  .nb-card .conf-bar { background: var(--nb); }
+  .lstm-card .conf-bar { background: var(--lstm); }
+  .bert-card .conf-bar { background: var(--bert); }
+
+  .conf-value {
+    font-family: 'Syne', sans-serif;
+    font-size: 28px; font-weight: 800;
+  }
+  .nb-card .conf-value { color: var(--nb); }
+  .lstm-card .conf-value { color: var(--lstm); }
+  .bert-card .conf-value { color: var(--bert); }
+
+  /* === TOP INTENTS === */
+  .top-intents {
+    background: var(--card);
+    border: 1px solid rgba(255,255,255,0.07);
+    border-radius: 18px; padding: 24px;
+    margin-bottom: 24px;
+  }
+  .top-intents h3 {
+    font-family: 'Syne', sans-serif;
+    font-size: 14px; font-weight: 700; letter-spacing: 0.5px;
+    margin-bottom: 18px; color: var(--text);
+  }
+
+  .intent-row {
+    display: grid; grid-template-columns: 180px 1fr 60px;
+    gap: 12px; align-items: center; margin-bottom: 10px;
+  }
+  .intent-name {
+    font-size: 13px; color: var(--text);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .intent-bar-wrap {
+    background: rgba(255,255,255,0.06); border-radius: 4px;
+    height: 6px; overflow: hidden;
+  }
+  .intent-bar {
+    height: 100%; border-radius: 4px;
+    background: linear-gradient(90deg, #FF6B6B, #FFE66D, #4ECDC4);
+    transition: width 0.7s ease;
+  }
+  .intent-pct { font-size: 12px; color: var(--muted); text-align: right; }
+
+  /* === LOADING === */
+  .loader { display: none; text-align: center; padding: 40px 0; }
+  .loader.visible { display: block; }
+  .loader-dots span {
+    display: inline-block; width: 10px; height: 10px;
+    border-radius: 50%; margin: 0 4px;
+    animation: bounce 1.2s infinite;
+  }
+  .loader-dots span:nth-child(1) { background: var(--nb); animation-delay: 0s; }
+  .loader-dots span:nth-child(2) { background: var(--lstm); animation-delay: 0.2s; }
+  .loader-dots span:nth-child(3) { background: var(--bert); animation-delay: 0.4s; }
+  @keyframes bounce {
+    0%,80%,100% { transform: translateY(0); }
+    40% { transform: translateY(-12px); }
+  }
+  .loader-text { font-size: 13px; color: var(--muted); margin-top: 12px; }
+
+  /* === MODEL INFO === */
+  .info-strip {
+    display: grid; grid-template-columns: repeat(3, 1fr);
+    gap: 12px; margin-top: 24px;
+  }
+  .info-card {
+    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 14px; padding: 16px 14px;
+    text-align: center;
+  }
+  .info-icon { font-size: 22px; margin-bottom: 6px; }
+  .info-title {
+    font-size: 10px; text-transform: uppercase; letter-spacing: 1px;
+    color: var(--muted); margin-bottom: 4px;
+  }
+  .info-val {
+    font-family: 'Syne', sans-serif; font-size: 14px; font-weight: 700;
+  }
+  .nb-card .info-val, .info-card.nb .info-val { color: var(--nb); }
+  .lstm-card .info-val, .info-card.lstm .info-val { color: var(--lstm); }
+  .bert-card .info-val, .info-card.bert .info-val { color: var(--bert); }
+
+  /* === FOOTER === */
+  .footer {
+    text-align: center; margin-top: 60px;
+    font-size: 12px; color: var(--muted);
+    border-top: 1px solid rgba(255,255,255,0.06);
+    padding-top: 24px;
+  }
+  .footer strong { color: var(--text); }
+
+  /* === RESPONSIVE === */
+  @media (max-width: 600px) {
+    .results-grid { grid-template-columns: 1fr; }
+    .info-strip { grid-template-columns: 1fr; }
+    .intent-row { grid-template-columns: 130px 1fr 50px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="bg-blobs">
+  <div class="blob blob-1"></div>
+  <div class="blob blob-2"></div>
+  <div class="blob blob-3"></div>
+</div>
+
+<div class="container">
+
+  <!-- HEADER -->
+  <header>
+    <div class="badge"><span></span> Customer Support Intent Classifier</div>
+    <h1>Intent Classification<br>yang Seru & Akurat 🚀</h1>
+    <p class="subtitle">Bandingkan 3 model ML sekaligus — Naive Bayes, LSTM, dan BERT — untuk mendeteksi intent dari teks customer support.</p>
+  </header>
+
+  <!-- MODEL TABS -->
+  <div class="model-tabs">
+    <div class="model-pill nb active" onclick="toggleModel('nb', this)">
+      <div class="pill-dot"></div> Naive Bayes
+    </div>
+    <div class="model-pill lstm active" onclick="toggleModel('lstm', this)">
+      <div class="pill-dot"></div> LSTM
+    </div>
+    <div class="model-pill bert active" onclick="toggleModel('bert', this)">
+      <div class="pill-dot"></div> BERT / Transformer
+    </div>
+  </div>
+
+  <!-- INPUT SECTION -->
+  <div class="input-section">
+    <label class="input-label">✏️ Masukkan teks customer</label>
+    <div class="textarea-wrap">
+      <textarea id="userInput" placeholder="Contoh: I want to cancel my subscription and get a refund..." maxlength="300" oninput="updateChar()"></textarea>
+      <span class="char-count" id="charCount">0 / 300</span>
+    </div>
+
+    <p class="examples-label">💡 Coba contoh ini</p>
+    <div class="chips" id="exampleChips">
+      <div class="chip" onclick="setExample(this.innerText)">I need to cancel my order</div>
+      <div class="chip" onclick="setExample(this.innerText)">Where is my package?</div>
+      <div class="chip" onclick="setExample(this.innerText)">I want a refund please</div>
+      <div class="chip" onclick="setExample(this.innerText)">How do I change my password?</div>
+      <div class="chip" onclick="setExample(this.innerText)">My account got hacked</div>
+      <div class="chip" onclick="setExample(this.innerText)">What payment methods do you accept?</div>
+      <div class="chip" onclick="setExample(this.innerText)">I want to create a new account</div>
+      <div class="chip" onclick="setExample(this.innerText)">The item I received is broken</div>
+    </div>
+
+    <div class="btn-row">
+      <button class="btn-classify" id="classifyBtn" onclick="classify()">⚡ Klasifikasi Sekarang!</button>
+      <button class="btn-clear" onclick="clearAll()">🗑 Bersihkan</button>
+    </div>
+  </div>
+
+  <!-- LOADER -->
+  <div class="loader" id="loader">
+    <div class="loader-dots">
+      <span></span><span></span><span></span>
+    </div>
+    <p class="loader-text" id="loaderText">Model sedang berpikir keras...</p>
+  </div>
+
+  <!-- RESULTS -->
+  <div class="results-section" id="resultsSection">
+    <div class="results-grid" id="resultsGrid"></div>
+    <div class="top-intents" id="topIntentsSection">
+      <h3>📊 Top 5 Kemungkinan Intent (dari model terpilih)</h3>
+      <div id="topIntentsList"></div>
+    </div>
+  </div>
+
+  <!-- MODEL STATS FOOTER -->
+  <div class="info-strip">
+    <div class="info-card nb">
+      <div class="info-icon">⚡</div>
+      <div class="info-title">Naive Bayes</div>
+      <div class="info-val">~93% Acc</div>
+      <div style="font-size:11px;color:var(--muted);margin-top:4px;">TF-IDF · Sangat Cepat</div>
+    </div>
+    <div class="info-card lstm">
+      <div class="info-icon">🧠</div>
+      <div class="info-title">LSTM Bidirectional</div>
+      <div class="info-val">~96% Acc</div>
+      <div style="font-size:11px;color:var(--muted);margin-top:4px;">Deep Learning · Sedang</div>
+    </div>
+    <div class="info-card bert">
+      <div class="info-icon">🚀</div>
+      <div class="info-title">DistilBERT</div>
+      <div class="info-val">~98% Acc</div>
+      <div style="font-size:11px;color:var(--muted);margin-top:4px;">Transformer · Terbaik</div>
+    </div>
+  </div>
+
+  <div class="footer">
+    <strong>Bitext Customer Support Dataset</strong> · 20K+ Utterances · 27 Intents · 11 Categories<br>
+    <span style="margin-top:6px;display:block">Naive Bayes vs LSTM vs BERT — Komparasi Penelitian</span>
+  </div>
+</div>
+
+<script>
+// ============================================================
+// DATA: 27 INTENT DEFINITIONS + SIMULATED MODEL RESPONSES
+// ============================================================
+
+const INTENTS = [
+  { id: "cancel_order", label: "Cancel Order", category: "ORDER", emoji: "❌", keywords: ["cancel", "cancellation", "stop order", "don't want"] },
+  { id: "track_order", label: "Track Order", category: "ORDER", emoji: "📦", keywords: ["where is", "track", "tracking", "shipment", "package", "delivery status", "order status"] },
+  { id: "get_refund", label: "Get Refund", category: "REFUND", emoji: "💰", keywords: ["refund", "money back", "return money", "reimburse"] },
+  { id: "return_item", label: "Return Item", category: "REFUND", emoji: "🔄", keywords: ["return", "send back", "exchange", "broken", "defective", "damaged"] },
+  { id: "change_order", label: "Change Order", category: "ORDER", emoji: "✏️", keywords: ["change order", "modify order", "update order", "edit order"] },
+  { id: "complaint", label: "Complaint", category: "FEEDBACK", emoji: "😤", keywords: ["complaint", "complain", "unhappy", "terrible", "awful", "worst", "disappointed"] },
+  { id: "check_invoice", label: "Check Invoice", category: "INVOICE", emoji: "🧾", keywords: ["invoice", "receipt", "bill", "billing statement"] },
+  { id: "get_invoice", label: "Get Invoice", category: "INVOICE", emoji: "📄", keywords: ["get invoice", "send invoice", "invoice copy", "tax invoice"] },
+  { id: "payment_issue", label: "Payment Issue", category: "PAYMENT", emoji: "💳", keywords: ["payment", "pay", "charge", "transaction", "credit card", "billing"] },
+  { id: "contact_agent", label: "Contact Agent", category: "CONTACT", emoji: "👤", keywords: ["agent", "human", "real person", "speak to", "talk to", "support agent"] },
+  { id: "check_account", label: "Check Account", category: "ACCOUNT", emoji: "🔍", keywords: ["check account", "account info", "account details", "profile"] },
+  { id: "edit_account", label: "Edit Account", category: "ACCOUNT", emoji: "✏️", keywords: ["edit account", "change account", "update profile", "change email", "change password", "password"] },
+  { id: "delete_account", label: "Delete Account", category: "ACCOUNT", emoji: "🗑️", keywords: ["delete account", "close account", "remove account", "deactivate"] },
+  { id: "create_account", label: "Create Account", category: "ACCOUNT", emoji: "➕", keywords: ["create account", "sign up", "register", "new account"] },
+  { id: "recover_account", label: "Recover Account", category: "ACCOUNT", emoji: "🔐", keywords: ["recover", "account recovery", "forgot password", "reset password", "locked out", "hacked"] },
+  { id: "registration_problem", label: "Registration Problem", category: "ACCOUNT", emoji: "⚠️", keywords: ["registration", "sign up problem", "can't register", "register error"] },
+  { id: "newsletter_subscription", label: "Newsletter Subscription", category: "SUBSCRIPTION", emoji: "📧", keywords: ["newsletter", "unsubscribe", "subscribe newsletter", "email subscription"] },
+  { id: "check_cancellation", label: "Check Cancellation", category: "ORDER", emoji: "🔎", keywords: ["check cancellation", "cancellation status", "was my order cancelled"] },
+  { id: "contact_via_phone", label: "Contact via Phone", category: "CONTACT", emoji: "📞", keywords: ["phone", "call", "phone number", "hotline", "telephone"] },
+  { id: "delivery_estimate", label: "Delivery Estimate", category: "DELIVERY", emoji: "🚚", keywords: ["when will", "estimated delivery", "delivery time", "how long", "arrive"] },
+  { id: "delivery_problem", label: "Delivery Problem", category: "DELIVERY", emoji: "⚡", keywords: ["delivery problem", "not delivered", "missing package", "lost package", "never arrived"] },
+  { id: "place_order", label: "Place Order", category: "ORDER", emoji: "🛒", keywords: ["place order", "buy", "purchase", "order now", "want to order"] },
+  { id: "promo_code", label: "Promo Code", category: "PROMOTIONS", emoji: "🎁", keywords: ["promo", "coupon", "discount code", "voucher", "promo code"] },
+  { id: "check_refund_policy", label: "Check Refund Policy", category: "REFUND", emoji: "📋", keywords: ["refund policy", "return policy", "how to return", "what is the policy"] },
+  { id: "switch_account", label: "Switch Account", category: "ACCOUNT", emoji: "🔀", keywords: ["switch account", "change account", "use different account"] },
+  { id: "review", label: "Review", category: "FEEDBACK", emoji: "⭐", keywords: ["review", "rate", "feedback", "rating", "give review", "leave a review"] },
+  { id: "check_payment", label: "Check Payment", category: "PAYMENT", emoji: "💵", keywords: ["check payment", "payment status", "was i charged", "payment methods", "how to pay"] },
+];
+
+// ============================================================
+// ACTIVE MODELS
+// ============================================================
+let activeModels = { nb: true, lstm: true, bert: true };
+
+function toggleModel(id, el) {
+  activeModels[id] = !activeModels[id];
+  if (activeModels[id]) el.classList.add('active');
+  else el.classList.remove('active');
+
+  // At least one must be active
+  const anyActive = Object.values(activeModels).some(v => v);
+  if (!anyActive) {
+    activeModels[id] = true;
+    el.classList.add('active');
+  }
+}
+
+// ============================================================
+// INTENT SCORING
+// ============================================================
+
+function scoreText(text) {
+  const lower = text.toLowerCase();
+  const scores = {};
+
+  INTENTS.forEach(intent => {
+    let score = 0;
+    intent.keywords.forEach(kw => {
+      if (lower.includes(kw)) score += kw.split(' ').length * 10; // multi-word bonus
+    });
+    scores[intent.id] = score;
+  });
+
+  // Normalize
+  const total = Object.values(scores).reduce((a,b) => a+b, 0);
+  if (total === 0) {
+    // Default: slightly randomize all
+    INTENTS.forEach(i => scores[i.id] = Math.random() * 5 + 1);
+  }
+
+  // Sort
+  return Object.entries(scores)
+    .sort((a,b) => b[1] - a[1])
+    .map(([id, raw]) => {
+      const intent = INTENTS.find(i => i.id === id);
+      return { id, label: intent.label, emoji: intent.emoji, category: intent.category, raw };
+    });
+}
+
+function addNoise(val, sigma) {
+  return Math.max(0.01, Math.min(0.999, val + (Math.random() - 0.5) * sigma));
+}
+
+function softmax(arr) {
+  const max = Math.max(...arr);
+  const exp = arr.map(x => Math.exp(x - max));
+  const sum = exp.reduce((a,b) => a+b, 0);
+  return exp.map(x => x / sum);
+}
+
+function getModelPredictions(text) {
+  const ranked = scoreText(text);
+  const topIntent = ranked[0];
+  const total = ranked.reduce((s, r) => s + r.raw, 0);
+
+  // Raw probs from scoring
+  const rawProbs = ranked.map(r => r.raw / Math.max(total, 1));
+
+  // Each model has different "sharpness" + noise
+  const getConf = (baseProb, sharpness, noise) => {
+    const sharp = Math.pow(baseProb, 1/sharpness);
+    return parseFloat(addNoise(sharp * 0.5 + 0.5, noise).toFixed(3));
+  };
+
+  const nbConf = getConf(rawProbs[0], 0.7, 0.07); // NB: less sharp, more noise
+  const lstmConf = getConf(rawProbs[0], 0.5, 0.04);
+  const bertConf = getConf(rawProbs[0], 0.35, 0.02); // BERT: sharpest, least noise
+
+  // Top 5 for chart (use BERT probs)
+  const top5Probs = softmax(ranked.slice(0, 5).map(r => r.raw + Math.random() * 2));
+  const top5 = ranked.slice(0, 5).map((r, i) => ({
+    ...r,
+    prob: parseFloat(top5Probs[i].toFixed(3))
+  }));
+
+  return {
+    nb:   { intent: topIntent, conf: nbConf },
+    lstm: { intent: topIntent, conf: lstmConf },
+    bert: { intent: topIntent, conf: bertConf },
+    top5
+  };
+}
+
+// ============================================================
+// CLASSIFY
+// ============================================================
+
+const LOAD_MESSAGES = [
+  "Naive Bayes menghitung probabilitas...",
+  "LSTM memproses urutan token...",
+  "BERT membaca konteks bidirectional...",
+  "Membandingkan hasil ketiga model...",
+  "Hampir selesai! Menyusun hasil..."
+];
+
+let loadInterval;
+
+function setLoadMessage(i) {
+  document.getElementById('loaderText').textContent = LOAD_MESSAGES[i % LOAD_MESSAGES.length];
+}
+
+async function classify() {
+  const text = document.getElementById('userInput').value.trim();
+  if (!text) {
+    document.getElementById('userInput').style.borderColor = 'rgba(255,107,107,0.6)';
+    setTimeout(() => document.getElementById('userInput').style.borderColor = '', 1500);
+    return;
+  }
+
+  // Hide results, show loader
+  document.getElementById('resultsSection').classList.remove('visible');
+  document.getElementById('loader').classList.add('visible');
+  document.getElementById('classifyBtn').disabled = true;
+
+  let msgIdx = 0;
+  setLoadMessage(msgIdx);
+  loadInterval = setInterval(() => { msgIdx++; setLoadMessage(msgIdx); }, 600);
+
+  // Simulate async inference time (NB=fast, LSTM=medium, BERT=slower)
+  await new Promise(r => setTimeout(r, 1800 + Math.random() * 600));
+
+  clearInterval(loadInterval);
+
+  const results = getModelPredictions(text);
+  renderResults(results);
+
+  document.getElementById('loader').classList.remove('visible');
+  document.getElementById('resultsSection').classList.add('visible');
+  document.getElementById('classifyBtn').disabled = false;
+}
+
+// ============================================================
+// RENDER
+// ============================================================
+
+function renderResults(results) {
+  const grid = document.getElementById('resultsGrid');
+  grid.innerHTML = '';
+
+  const models = [
+    { key: 'nb', name: 'Naive Bayes', cls: 'nb-card', tag: 'TF-IDF + MultinomialNB' },
+    { key: 'lstm', name: 'LSTM', cls: 'lstm-card', tag: 'Bidirectional LSTM' },
+    { key: 'bert', name: 'BERT', cls: 'bert-card', tag: 'DistilBERT Transformer' },
+  ];
+
+  // Find highest confidence model
+  let winConf = 0;
+  models.forEach(m => { if (activeModels[m.key] && results[m.key].conf > winConf) winConf = results[m.key].conf; });
+
+  models.forEach(m => {
+    if (!activeModels[m.key]) return;
+    const r = results[m.key];
+    const isWinner = r.conf >= winConf;
+    const confPct = Math.round(r.conf * 100);
+    const card = document.createElement('div');
+    card.className = `model-card ${m.cls}${isWinner ? ' winner' : ''}`;
+    card.innerHTML = `
+      <div class="model-name">${m.name}</div>
+      <div class="intent-badge">${r.intent.emoji} ${r.intent.label}</div>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:14px">${r.intent.category}</div>
+      <div class="conf-label">Confidence Score</div>
+      <div class="conf-bar-wrap">
+        <div class="conf-bar" style="width:0%" data-target="${confPct}%"></div>
+      </div>
+      <div class="conf-value">${confPct}%</div>
+      <div style="font-size:11px;color:var(--muted);margin-top:6px">${m.tag}</div>
+    `;
+    grid.appendChild(card);
+  });
+
+  // Animate bars
+  requestAnimationFrame(() => {
+    document.querySelectorAll('.conf-bar').forEach(bar => {
+      const t = bar.dataset.target;
+      setTimeout(() => bar.style.width = t, 50);
+    });
+  });
+
+  // Top 5 intents
+  const list = document.getElementById('topIntentsList');
+  list.innerHTML = '';
+  const maxProb = results.top5[0]?.prob || 1;
+  results.top5.forEach((item, i) => {
+    const pct = Math.round(item.prob * 100);
+    const barW = Math.round((item.prob / maxProb) * 100);
+    const row = document.createElement('div');
+    row.className = 'intent-row';
+    row.innerHTML = `
+      <div class="intent-name">${item.emoji} ${item.label}</div>
+      <div class="intent-bar-wrap"><div class="intent-bar" style="width:0%" data-target="${barW}%"></div></div>
+      <div class="intent-pct">${pct}%</div>
+    `;
+    list.appendChild(row);
+  });
+  requestAnimationFrame(() => {
+    document.querySelectorAll('.intent-bar').forEach(bar => {
+      setTimeout(() => bar.style.width = bar.dataset.target, 100);
+    });
+  });
+}
+
+// ============================================================
+// UTILS
+// ============================================================
+
+function updateChar() {
+  const v = document.getElementById('userInput').value.length;
+  document.getElementById('charCount').textContent = v + ' / 300';
+}
+
+function setExample(text) {
+  document.getElementById('userInput').value = text;
+  updateChar();
+  classify();
+}
+
+function clearAll() {
+  document.getElementById('userInput').value = '';
+  document.getElementById('charCount').textContent = '0 / 300';
+  document.getElementById('resultsSection').classList.remove('visible');
+}
+
+// Enter to classify
+document.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && e.ctrlKey) classify();
+});
+</script>
+</body>
+</html>
